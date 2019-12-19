@@ -8,7 +8,7 @@ subset of ES6. Features include:
 - Tiny: less than 15KB on flash, less than 200 bytes RAM for core VM
 - Very low native stack memory usage
 - Very small public API
-- Allows to call native functions via FFI
+- Allows to call C/C++ functions from Javascript and vice versa
 - Limitations:
 	 - Max string length is 8KB
 	 - Numbers hold 32-bit `float` value or 23-bit integer value
@@ -28,7 +28,7 @@ int sum(int a, int b) {
 int main(void) {
   char mem[500];	// Preallocated JS memory buffer
   struct js *js = js_create(mem, sizeof(mem));  // Create JS instance
-  js_import(js, "sum", sum, "iii");     // Import C function "sum" into JS
+  js_import(js, "sum", sum, "iii");    	// Import C function "sum" into JS
   js_eval(js, "sum(1, 2);", 0);         // Call "sum"
   return 0;
 }
@@ -36,35 +36,17 @@ int main(void) {
 
 ## Call Javascript from C
 ```c
-char buf[100];
-jsval_t v = js_eval(js, "1 + 2 * 3", 0);                  // Execute JS code
-printf("result: %s\n", js_fmt(js, v, buf, sizeof(buf)));  // result: 7
-js_gc(js, v);                                             // Garbage collect
+jsval_t v = js_eval(js, "1 + 2 * 3", 0); 	// Execute JS code
+printf("result: %s\n", js_str(js, v));  	// result: 7
+js_gc(js, v);                             // Garbage collect
 ```
 
 ## Blinky in JavaScript on Arduino Uno
 
-```c
-#include "elk.h"  // Add Elk library
+This example works on 8-bit Arduino with 2k of RAM, blinking an LED
+and printing JS memory usage statistics to the serial console:
 
-extern "C" void myDelay(int milli) { delay(milli); }
-extern "C" void myWrite(int pin, int val) { digitalWrite(pin, val); }
-extern "C" void myMode(int pin, int mode) { pinMode(pin, mode); }
-
-struct js *js;
-
-void setup() {
-  js = js_create(malloc(700), 700);
-  js_import(js, "f1", (uintptr_t) myDelay, "vi");
-  js_import(js, "f2", (uintptr_t) myWrite, "vii");
-  js_import(js, "f3", (uintptr_t) myMode, "vii");
-	js_eval(js, "f3(13, 1);", 0);  // Set LED pin to OUTPUT mode
-}
-
-void loop() {
-  js_eval(js, "f1(200); f2(13, 1); f1(200); f2(13, 0);", 0);
-}
-```
+See [ArduinoBlink.ino](examples/ArduinoBlink/ArduinoBlink.ino)
 
 ## Supported standard operations and constructs
 
@@ -94,19 +76,6 @@ void loop() {
 | Prototypes     | No prototype based inheritance                        	|
 
 
-## Javascript API
-
-The following functions are imported by `js_create()`. Note that these
-functions take mandatory first argument, `0`.
-
-| Signature | Description |
-| --------- | ----------- |
-| `ffi(0, 'signature@address')` | Import C function at runtime. For example, to import `aoi()` C function at runtime, do `ffi(0, 'is@0x12345')` where 0x12345 is the address of the `atoi` function. |
-| `str(0, val)` | Stringify JS value, just like `JSON.stringify()` |
-| `parse(0, '{"a":1}')` | Parse string into JS value, just like `JSON.parse()` |
-| `jsstat(0)` | Return JSON string with the JS VM statistics |
-
-
 ## C/C++ API
 
 See [elk.h](elk.h):
@@ -115,9 +84,11 @@ See [elk.h](elk.h):
 | --------- | ----------- |
 | `struct js *js_create(void *mem, int size)` | Initialize JS engine in a given memory chunk. |
 | `jsval_t js_eval(struct js *, const char *buf, int len)` | Evaluate JS code, return JS value. If `len` is 0, then `strlen(code)` is used. |
-| `char *js_fmt(struct js *, jsval_t v, char *buf, int len)` | Stringify JS value into the provided buffer, return pointer to `buf`. |
 | `void js_gc(struct js *, jsval_t v)` | Deallocate JS value obtained by `js_eval()` call. |
 | `const char *js_info(struct js *)` | Return JSON string with the Elk engine internal stats. |
+| `jsval_t *js_import(struct js *, const char *name, uintptr_t fn, const char *sig)` | Import C function into the JS environment |
+| `char *js_str(struct js *, jsval_t v)` | Stringifies JS value, like `JSON.stringify` |
+| `jsval_t js_parse(struct js *, const char *str)` | Parses a string into a JS value, like `JSON.parse()` |
  
 
 ## Importing C functions
@@ -184,11 +155,11 @@ int f(int (*callback)(int a, int b, void *userdata), void *userdata) {
 }
 
 int main(void) {
-  struct js *vm = js_create(500);
-  js_import(vm, f, "i[iiiu]u");
-  jsval_t v = js_eval(vm, "f(function(a,b,c){return a + b;}, 0);", 0);
-	printf("result: %s\n", js_fmt(js, v, buf, sizeof(buf)));  // result: 3
-  js_destroy(vm);
+  char mem[500];
+  struct js *js = js_create(mem, sizeof(mem));
+  js_import(js, f, "i[iiiu]u");
+  jsval_t v = js_eval(js, "f(function(a,b,c){return a + b;}, 0);", 0);
+	printf("result: %s\n", js_str(js, v));  // result: 3
   return 0;
 }
 ```
@@ -196,7 +167,7 @@ int main(void) {
 ## Build stand-alone binary
 
 ```
-$ cc -o elk examples/posix/main.c -I. -Lsrc/linux-x64 -ldl -lelk
+$ cc -o elk examples/posix/main.c -I src -L src/linux-x64 -ldl -lelk
 $ ./elk -e 'let o = {a: 1}; o.a += 1; o;'
 {"a":2}
 ```
