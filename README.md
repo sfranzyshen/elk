@@ -67,7 +67,7 @@ int main(void) {
 - No `var`, no `const`. Use `let`. Strict mode only
 - No `do`, `switch`, `for`. Use `while`
 - No `else`, only `if`. No ternary operator `a ? b : c`
-- No arrays, closures, prototypes, `this`, `new`, `instanceof`
+- No arrays, closures, prototypes, `this`, `new`, `delete`, `instanceof`
 - No standard library: no `Date`, `Regexp`, `Function`, `String`, `Number`
 - Strings are binary data chunks, not Unicode strings
 
@@ -86,10 +86,23 @@ while (a < 100)   // 16 milliseconds on a 48Mhz SAMD21
 
 ## Build options
 
-| Name         | Default | Description |
-| ------------ | ------- | ----------- |
-|`JS_EXPR_MAX` | 20      | Maximum tokens in expression. Reduce to save C stack space |
+Available preprocessor definitions:
 
+| Name         | Default   | Description |
+| ------------ | --------- | ----------- |
+|`JS_EXPR_MAX` | 20        | Maximum tokens in expression. Expression evaluation function declares an on-stack array `jsval_t stk[JS_EXPR_MAX];`. Increase to allow very long expressions. Reduce to save C stack space. |
+|`JS_DUMP`     | undefined | Define to enable `js_dump(struct js *)` function which prints JS memory internals to stdout |
+|`JS_GC_THRESHOLD` | 80 | A percentage (from 0 to 100) of runtime memory when GC is triggered. A trigger point is a beginning of statement block (function body, loop body, etc) |
+
+Note: on ESP32 or ESP8266, compiled functions go into the `.text` ELF
+section and subsequently into the IRAM MCU memory. It is possible to save
+IRAM space by copying Elk code into the irom section before linking.
+First, compile the object file, then rename `.text` section, e.g. for ESP8266:
+
+```sh
+$ xtensa-lx106-elf-gcc ... elk.c -c tmp
+$ xtensa-lx106-elf-objcopy --rename-section .text=.irom0.text tmp elk.a
+```
 
 ## API reference
 
@@ -123,6 +136,7 @@ strings, functions, etc, are copied to the runtime.
 
 Important note: the returned result is valid only before the next call to
 `js_eval()`. The reason is that `js_eval()` triggers a garbage collection.
+A garbage collection is mark-and-sweep.
 
 The runtime footprint is as follows:
 - An empty object is 8 bytes
@@ -139,17 +153,18 @@ const char *js_str(struct js *, jsval_t val);
 
 Stringify JS value `val` and return a pointer to a 0-terminated result.
 The string is allocated in the "free" memory section. If there is no
-enough space there, an empty string is returned.
+enough space there, an empty string is returned. The returned pointer
+is valid until the next `js_eval()` call.
 
 
 ### js\_import()
 
 ```c
-js_import(struct js *js, const char *name, unsigned long func, const char *signature);
+jsval_t js_import(struct js *js, uintptr_t funcaddr, const char *signature);
 ```
 
-Import an existing C function with address `func` and signature `signature`
-into Elk under the JS name `name`:
+Import an existing C function with address `funcaddr` and signature `signature`.
+Return imported function, suitable for subsequent `js_set()`.
 
 - `js`: JS instance
 - `func`: C function address: `(unsigned long) &my_function`
@@ -209,12 +224,55 @@ int f(int (*fn)(int a, int b, void *userdata), void *userdata) {
 int main(void) {
   char mem[500];
   struct js *js = js_create(mem, sizeof(mem));
-  js_import(js, f, "i[iiiu]u");
+  js_set(js, js_glob(js), "f", js_import(js, f, "i[iiiu]u"));
   jsval_t v = js_eval(js, "f(function(a,b,c){return a + b;}, 0);", ~0);
   printf("result: %s\n", js_str(js, v));  // result: 3
   return 0;
 }
 ```
+
+### js\_set(), js\_glob(), js\_mkobj()
+
+```c
+jsval_t js_glob(struct js *);   // Return global object
+jsval_t js_mkobj(struct js *);  // Create a new object
+void js_set(struct js *, jsval_t obj, const char *key, jsval_t val);  // Assign property to an object
+```
+
+These are helper functions for assigning properties to objects. The
+anticipated use case is to give names to imported C functions.
+
+Importing a C function `sum` into the global namespace:
+
+```c
+  jsval_t global_namespace = js_glob(js);
+  jsval_t imported_function = js_import(js, (uintptr_t) sum, "iii");
+  js_set(js, global_namespace, "f", imported_function);
+```
+
+Use `js_mkobj()` to create a dedicated object to hold groups of functions
+and keep a global namespace tidy. For example, all GPIO related functions
+can go into the `gpio` object:
+
+```c
+  jsval_t gpio = js_mkobj(js);              // Equivalent to:
+  js_set(js, js_glob(js), "gpio", gpio);    // let gpio = {};
+
+  js_set(js, gpio, "mode",  js_import(js, (uintptr_t) func1, "iii");  // Create gpio.mode(pin, mode)
+  js_set(js, gpio, "read",  js_import(js, (uintptr_t) func2, "ii");   // Create gpio.read(pin)
+  js_set(js, gpio, "write", js_import(js, (uintptr_t) func3, "iii");  // Create gpio.write(pin, value)
+```
+
+### js\_usage()
+
+```c
+int js_usage(struct js *);
+```
+
+Return memory usage percenage - a number between 0 and 100.
+If required, trigger a garbage collection by evaluating an empty expression:
+`js_eval(js, "", 0)`.
+
 
 ## LICENSE
 
