@@ -32,6 +32,10 @@
 #define JS_GC_THRESHOLD 80
 #endif
 
+#if defined(ARDUINO_AVR_NANO) || defined(ARDUINO_AVR_PRO)
+#define JS_NOCB
+#endif
+
 typedef uint32_t jsoff_t;
 
 struct js {
@@ -320,7 +324,7 @@ static inline jsoff_t esize(jsoff_t w) {
   // clang-format on
 }
 
-static inline bool is_mem_entity(uint8_t t) {
+static bool is_mem_entity(uint8_t t) {
   return t == T_OBJ || t == T_PROP || t == T_STR || t == T_FUNC;
 }
 
@@ -398,17 +402,12 @@ void js_gc(struct js *js) {
   js_delete_marked_entities(js);
 }
 
-static inline jsoff_t skipws(const char *code, jsoff_t n, jsoff_t pos) {
+static jsoff_t skipws(const char *code, jsoff_t n, jsoff_t pos) {
   while (pos < n && is_space(code[pos])) pos++;
   return pos;
 }
 
-// static inline bool lookback(const char *code, size_t pos) {
-// while (pos > 0 && is_space(code[pos])) pos--;
-// return is_space(code[pos]) || strchr("+-/%=&|^", code[pos]) != NULL;
-//}
-
-static inline bool streq(const char *buf, size_t len, const char *p, size_t n) {
+static bool streq(const char *buf, size_t len, const char *p, size_t n) {
   return n == len && memcmp(buf, p, len) == 0;
 }
 
@@ -650,7 +649,7 @@ union ffi_val { void *p; w6w_t fp; jw_t w; double d; jsval_t v; };
 struct fficbparam { struct js *js; const char *decl; jsval_t jsfunc; };
 
 static jsval_t call_js(struct js *js, const char *fn, int fnlen);
-//static jsval_t do_call_op(struct js *js, jsval_t func, jsval_t args);
+#ifndef JS_NOCB
 static jw_t fficb(struct fficbparam *cbp, union ffi_val *args) {
   struct js *js = cbp->js;
   char buf[100];
@@ -704,6 +703,7 @@ static w6w_t setfficb(struct js *js, jsval_t jsfunc,
   return res;
 }
 // clang-format on
+#endif
 
 // Call native C function
 static jsval_t call_c(struct js *js, const char *fn, int fnlen) {
@@ -719,7 +719,9 @@ static jsval_t call_c(struct js *js, const char *fn, int fnlen) {
         if (fn[i] == 'd') type |= 1 << (n + 1);
         // clang-format off
     switch (fn[i]) {
+#ifndef JS_NOCB
 			case '[': args[n++].p = (void *) setfficb(js, v, &cbp, &fn[i + 1], &i); break;
+#endif
       case 'd': if (vtype(v) != T_NUM) return js_err(js, "bad arg %d", n + 1); args[n++].d = tod(v); break;
       case 'b': if (vtype(v) != T_BOOL) return js_err(js, "bad arg %d", n + 1); args[n++].w = vdata(v); break;
       case 'i': if (vtype(v) != T_NUM) return js_err(js, "bad arg %d", n + 1); args[n++].w = (long) tod(v); break;
@@ -822,7 +824,7 @@ static jsval_t do_call_op(struct js *js, jsval_t func, jsval_t args) {
   return res;
 }
 
-static inline jsval_t do_logical_or(struct js *js, jsval_t l, jsval_t r) {
+static jsval_t do_logical_or(struct js *js, jsval_t l, jsval_t r) {
   if (js_truthy(js, l)) return mkval(T_BOOL, 1);
   return mkval(T_BOOL, js_truthy(js, r) ? 1 : 0);
 }
@@ -1095,19 +1097,19 @@ static jsval_t js_while(struct js *js) {
   return mkval(T_UNDEF, 0);
 }
 
-static inline jsval_t js_break(struct js *js) {
+static jsval_t js_break(struct js *js) {
   if (!(js->flags & F_LOOP)) return js_err(js, "not in loop");
   if (!(js->flags & F_NOEXEC)) js->flags |= F_BREAK | F_NOEXEC;
   return mkval(T_UNDEF, 0);
 }
 
-static inline jsval_t js_continue(struct js *js) {
+static jsval_t js_continue(struct js *js) {
   if (!(js->flags & F_LOOP)) return js_err(js, "not in loop");
   js->flags |= F_NOEXEC;
   return mkval(T_UNDEF, 0);
 }
 
-static inline jsval_t js_return(struct js *js) {
+static jsval_t js_return(struct js *js) {
   if (!(js->flags & F_CALL)) return js_err(js, "not in func");
   if (lookahead(js) == TOK_SEMICOLON) return mkval(T_UNDEF, 0);
   jsval_t result = js_expr(js, TOK_SEMICOLON, TOK_SEMICOLON);
