@@ -72,6 +72,7 @@ static void test_errors(void) {
   char mem[200];
   struct js *js;
   assert((js = js_create(mem, sizeof(mem))) != NULL);
+  assert(ev(js, "~~~~~~~~~~~~~~~~~~~~~~", "ERROR: expr too deep"));
   assert(ev(js, "+", "ERROR: bad expr"));
   assert(ev(js, "2+", "ERROR: bad expr"));
   assert(ev(js, "2 * * 2", "ERROR: bad expr"));
@@ -88,6 +89,12 @@ static void test_errors(void) {
   assert(ev(js, "class", "ERROR: 'class' not implemented"));
   assert(ev(js, "const x", "ERROR: 'const' not implemented"));
   assert(ev(js, "var x", "ERROR: 'var' not implemented"));
+
+  assert(ev(js, "1 + yield", "ERROR: unexpected token 'yield'"));
+  assert(ev(js, "yield", "ERROR: 'yield' not implemented"));
+  assert(ev(js, "@", "ERROR: parse error"));
+  assert(ev(js, "$", "ERROR: '$' not found"));
+  assert(ev(js, "1?2:3", "ERROR: unknown op 130"));
 }
 
 static void test_basic(void) {
@@ -159,8 +166,21 @@ static void test_basic(void) {
   assert(ev(js, "a = 0; 1 + a++ + 2", "3"));
   assert(ev(js, "a", "1"));
   assert(ev(js, "a = 0; 3 * (1 + a++ + (2 + a++))", "12"));
-  // js_gc(js);
-  // js_dump(js);
+
+  assert(ev(js, "1+2;", "3"));
+  assert(ev(js, "1+2; ", "3"));
+  assert(ev(js, "1+2;//9", "3"));
+  assert(ev(js, "1+2;//", "3"));
+  assert(ev(js, "1/**/+2;//9", "3"));
+  assert(ev(js, "1/**/+2;/**///9", "3"));
+  assert(ev(js, "1/**/+ /* some comment*/2;/**///9", "3"));
+  assert(ev(js, "1/**/+ /* */2;/**///9", "3"));
+  assert(ev(js, "1/**/+ /* \n*/2;/**///9", "3"));
+  assert(ev(js, "1 + /* * */ 2;", "3"));
+  assert(ev(js, "1 + /* **/ 2;", "3"));
+  assert(ev(js, "1 + /* ///**/ 2;", "3"));
+  assert(ev(js, "1 + /*\n//*/ 2;", "3"));
+  assert(ev(js, "1 + /*\n//\n*/ 2;", "3"));
 }
 
 static void test_memory(void) {
@@ -168,9 +188,8 @@ static void test_memory(void) {
   struct js *js;
   assert((js = js_create(mem, sizeof(mem))) != NULL);
   assert(ev(js, "({a:1})", "ERROR: oom"));  // OOM
-  // js_set(js, js->scope, js_mkstr(js, "abcde", 5), tov(1.2345));
-  // js_set(js, js->scope, js_mkstr(js, "aa", 2), mkval(T_NULL, 0));
-  // js_dump(js);
+  assert(js_usage(js) > 0);
+  js_dump(js);
 }
 
 static void test_strings(void) {
@@ -201,8 +220,11 @@ static void test_strings(void) {
   assert(ev(js, "a", "\"hi\""));
   assert(ev(js, "b", "\"hi\""));
   assert(ev(js, "a = b = 1", "1"));
-  // js_gc(js);
-  // js_dump(js);
+  assert(ev(js, "'x' * 'y'", "ERROR: bad str op"));
+  assert(ev(js, "'aa'.foo", "ERROR: lookup in non-obj"));
+  assert(ev(js, "'aa'.length", "2"));
+  assert(ev(js, "'Київ'.length", "8"));
+  assert(ev(js, "({a:'ї'}).a.length", "2"));
 }
 
 static void test_flow(void) {
@@ -243,6 +265,18 @@ static void test_flow(void) {
   assert(ev(js, "a=0; if (0) a=1; else if (1) a=2; a;", "2"));
   assert(ev(js, "a=0; if (0){7;a=1;}else if (1){7;a=2;} a;", "2"));
   assert(ev(js, "a=0; if(0){7;a=1;}else if(0){5;a=2;}else{3;a=3;} a;", "3"));
+#if 0
+  // Ternary operator
+  assert(ev(js, "1?2:3", "2"));
+  assert(ev(js, "0?2:3", "3"));
+  assert(ev(js, "0?1+1:1+2", "3"));
+  assert(ev(js, "a=0?1+1:1+2", "3"));
+  assert(ev(js, "a", "3"));
+  assert(ev(js, "a=b=0; a=b=0?1+1:1+2", "3"));
+  assert(ev(js, "a=0?1+1:1+2; a++; a", "4"));
+  assert(ev(js, "a=0; 0?a++:a--; a", "-1"));
+  assert(ev(js, "a=1?2:0?3:4", "2"));
+#endif
 }
 
 static void test_scopes(void) {
@@ -309,12 +343,14 @@ static void test_funcs(void) {
   assert(ev(js, "f = function(a,b){return a + b;}; 1", "1"));
   js_gc(js);
   jsoff_t brk = js->brk;
+  assert(ev(js, "f(3, 4 )", "7"));
   assert(ev(js, "f(3,4)", "7"));
   assert(ev(js, "f(1+2,4)", "7"));
   assert(ev(js, "f(1+2,f(2,3))", "8"));
   js_gc(js);
   assert(js->brk == brk);
   assert(ev(js, "let a=0; (function(){a++;})(); a", "1"));
+  assert(ev(js, "a=0; (function(){ a++; })(); a", "1"));
 }
 
 static void test_bool(void) {
@@ -326,6 +362,12 @@ static void test_bool(void) {
   assert(ev(js, "1 && ''", "false"));
   assert(ev(js, "1 && false || true", "true"));
   assert(ev(js, "1 && false && true", "false"));
+  assert(ev(js, "1 === 2", "false"));
+  assert(ev(js, "1 !== 2", "true"));
+  assert(ev(js, "1 === true", "ERROR: type mismatch"));
+  assert(ev(js, "1 <= 2", "true"));
+  assert(ev(js, "1 < 2", "true"));
+  assert(ev(js, "2 >= 2", "true"));
 }
 
 static void test_gc(void) {
@@ -380,6 +422,7 @@ static void test_ffi(void) {
   js_set(js, obj, "fmt", js_import(js, (uintptr_t) fmt, "sd"));
   js_set(js, obj, "op", js_import(js, (uintptr_t) op, "i[iiu]iiu"));
   js_set(js, obj, "op2", js_import(js, (uintptr_t) op2, "v[viu]u"));
+  js_set(js, js_glob(js), "eval", js_import(js, (uintptr_t) js_eval, "jmsi"));
   assert(ev(js, "os.atoi()", "ERROR: bad arg 1"));
   assert(ev(js, "os.bad1(1)", "ERROR: bad sig"));
   assert(ev(js, "os.sum1(1)", "ERROR: bad arg 2"));
@@ -397,6 +440,7 @@ static void test_ffi(void) {
   assert(ev(js, "let f = function(){return 1;}; 7;", "7"));
   assert(ev(js, "a=b=0; while(a++<1){os.sum1(1,2);b++;};b", "1"));
   assert(ev(js, "a=b=0; while(a++<1){f();f();b++;};b", "1"));
+  assert(ev(js, "eval(null, '3+4',3)", "7"));
 
   // Test that C can trigger JS callback even after GC
   assert(ev(js, "'foo'; 'bar'; 1", "1"));  // This will be GC-ed
@@ -411,12 +455,12 @@ static void test_ffi(void) {
 
 int main(void) {
   clock_t a = clock();
+  test_basic();
   test_ffi();
   test_bool();
   test_gc();
   test_funcs();
   test_scopes();
-  test_basic();
   test_arith();
   test_errors();
   test_memory();

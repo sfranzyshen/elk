@@ -29,7 +29,7 @@ linux:
 	$(call build,$(DOCKER) mdashnet/cc2,$(CC), $(CFLAGS) -o ut -lm,./ut)
 
 mingw:
-	$(call build,$(DOCKER) mdashnet/mingw,i686-w64-mingw32-gcc,-W -Wall -o ut,wine ut)
+	$(call build,$(DOCKER) mdashnet/mingw,i686-w64-mingw32-gcc,-W -Wall $(EXTRA) -o ut,wine ut)
 
 arduino:
 	curl -s http://downloads.arduino.cc/arduino-1.8.13-linux64.tar.xz -o /tmp/a.tgz
@@ -39,7 +39,7 @@ arduino:
 uno: arduino
 	rm -rf tmp; mkdir tmp; cp ../examples/BlinkyJS/BlinkyJS.ino tmp/tmp.ino
 	cp ../elk.c ../elk.h tmp/
-	$(DOCKER) mdashnet/cc2 ./arduino/arduino --verify --board arduino:avr:uno tmp/tmp.ino
+	$(DOCKER) mdashnet/cc2 ./arduino/arduino --verify --board arduino:avr:nano tmp/tmp.ino
 
 cli:
 	$(CC) ../elk.c ../examples/cmdline/main.c $(CFLAGS) -o $@
