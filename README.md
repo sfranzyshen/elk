@@ -17,7 +17,7 @@ Elk features include:
 - Zero dependencies. Builds cleanly by ISO C or ISO C++ compilers
 - Easy to embed: just copy `elk.c` and `elk.h` to your source tree
 - Very small and simple embedding API
-- Allows to call C/C++ functions from JavaScript and vice versa
+- Can call native C/C++ functions from JavaScript and vice versa
 - Does not use malloc. Operates with a given memory buffer only
 - Small footprint: about 20KB on flash/disk, about 100 bytes RAM for core VM
 - No bytecode. Interprets JS code directly
@@ -26,6 +26,32 @@ Below is a demonstration on a classic Arduino Nano board which has
 2K RAM and 30K flash (see [full sketch](examples/BlinkyJS/BlinkyJS.ino)):
 
 ![Elk on Arduino Nano](test/nano.gif)
+
+
+## JavaScript on ESP32
+
+The [Esp32JS](examples/Esp32JS) Arduino sketch is an example of Elk integration
+with ESP32. Flash this sketch on your ESP32 board, go to http://elk-js.com,
+and get a JavaScript development environment instantly! Reloading your script
+takes a fraction of a second - compare that with a regular reflashing..
+Here how it looks like:
+
+![](test/editor.png)
+
+The example JS firmware implements:
+- Blinks an LED periodically
+- Connects to the [HiveMQ](http://www.hivemq.com/demos/websocket-client/)
+  MQTT server
+- Subscribes to the `elk/rx` topic
+- When an MQTT message is received, sends some stats to the `elk/tx` topic:
+
+
+That's screenshot is taken from the MQTT server which shows that we sent
+a `hello JS!` message and received stats in response:
+
+![](test/mqtt.png)
+
+
 
 ## Call JavaScript from C
 ```c
@@ -65,16 +91,28 @@ int main(void) {
 }
 ```
 
-## Restrictions
+## Supported features
 
+- Operations: all standard JS operations except:
+   - `!=`, `==`. Use strict comparison `!==`, `===`
+   - No ternary operator `a ? b : c`
+   - No computed member access `a[b]`
+- Typeof: `typeof('a') === 'string'`
+- While: `while (...) { ... }`
+- Conditional: `if (...) ... else ...`
+- Simple types: `let a, b, c = 12.3, d = 'a', e = null, f = true, g = false;`
+- Functions: `let f = function(x, y) { return x + y; };`
+- Objects: `let obj = {f: function(x) { return x * 2}}; obj.f(3);`
 - Every statement must end with a semicolon `;`
-- No `!=`, `==`. Use strict comparison `!==`, `===`
+- Strings are binary data chunks, not Unicode strings: `'Київ'.length === 8`
+
+## Not supported features
+
 - No `var`, no `const`. Use `let` (strict mode only)
 - No `do`, `switch`, `for`. Use `while`
-- No ternary operator `a ? b : c`, no computed member access `a[b]`
+- No `=>` functions. Use `let f = function(...) {...};`
 - No arrays, closures, prototypes, `this`, `new`, `delete`
 - No standard library: no `Date`, `Regexp`, `Function`, `String`, `Number`
-- Strings are binary data chunks, not Unicode strings: `'Київ'.length === 8`
 
 ## Performance
 
@@ -97,7 +135,7 @@ Available preprocessor definitions:
 | ------------ | --------- | ----------- |
 |`JS_EXPR_MAX` | 20        | Maximum tokens in expression. Expression evaluation function declares an on-stack array `jsval_t stk[JS_EXPR_MAX];`. Increase to allow very long expressions. Reduce to save C stack space. |
 |`JS_DUMP`     | undefined | Define to enable `js_dump(struct js *)` function which prints JS memory internals to stdout |
-|`JS_GC_THRESHOLD` | 80 | A percentage (from 0 to 100) of runtime memory when GC is triggered. A trigger point is a beginning of statement block (function body, loop body, etc) |
+|`JS_GC_THRESHOLD` | 80 | A percentage (from 0 to 100) of runtime memory when a garbage collection (GC) is triggered. A trigger point is a beginning of statement block (function body, loop body, etc) |
 
 Note: on ESP32 or ESP8266, compiled functions go into the `.text` ELF
 section and subsequently into the IRAM MCU memory. It is possible to save
@@ -176,13 +214,13 @@ Return imported function, suitable for subsequent `js_set()`.
 - `signature`: specifies C function signature that tells how JS engine
    should marshal JS arguments to the C function.
 	 First letter specifies return value type, following letters - parameters:
-   - `b`: C `bool` type
-   - `d`: C `double` type
-   - `i`: C integer type: `char`, `short`, `int`, `long`
-   - `s`: C string, a 0-terminated `char *`
-   - `j`: marshals `jsval_t`
-   - `m`: marshals current `struct js *`. In JS, pass `null`
-   - `p`: marshals C pointer
+   - `b`: a C `bool` type
+   - `d`: a C `double` type
+   - `i`: a C integer type: `char`, `short`, `int`, `long`
+   - `s`: a C string, a 0-terminated `char *`
+   - `j`: a `jsval_t`
+   - `m`: a current `struct js *`. In JS, pass `null`
+   - `p`: any C pointer
    - `v`: valid only for the return value, means `void`
 
 The imported C function must satisfy the following requirements:
