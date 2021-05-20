@@ -137,6 +137,10 @@ static void test_basic(void) {
   assert(ev(js, "a^=5;a;", "-6"));
   assert(ev(js, "a>>=2;a;", "-2"));
   assert(ev(js, "a=3;a<<=2;a;", "12"));
+  assert(ev(js, "a=5;1;", "1"));
+  assert(ev(js, "a&=3;a;", "1"));
+  assert(ev(js, "a=5;1;", "1"));
+  assert(ev(js, "a|=3;a;", "7"));
   assert(ev(js, "a=b=7", "7"));
   assert(ev(js, "a", "7"));
   assert(ev(js, "a+", "ERROR: bad expr"));
