@@ -44,6 +44,8 @@ uno: arduino
 cli:
 	$(CC) ../elk.c ../examples/cmdline/main.c $(CFLAGS) -o $@
 
+repl:
+	$(CC) ../elk.c ../examples/repl/main.c $(CFLAGS) -o $@
 
 coverage: test
 	gcov -l -n *.gcno | sed '/^$$/d' | sed 'N;s/\n/ /'
