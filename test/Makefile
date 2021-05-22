@@ -4,7 +4,7 @@ ROOT ?= $(realpath $(CURDIR)/..)
 DOCKER = docker run $(DA) --rm -e WINEDEBUG=-all -v $(ROOT):$(ROOT) -w $(CWD)
 
 define clean
-  rm -rf  *.o *.dSYM ut* cli fuzzer* *.gcov *.gcno *.gcda *.obj *.exe *.ilk *.pdb slow-unit* _CL_* infer-out data.txt crash-* a.out tmp
+  rm -rf  *.o *.dSYM ut* cli repl fuzzer* *.gcov *.gcno *.gcda *.obj *.exe *.ilk *.pdb slow-unit* _CL_* infer-out data.txt crash-* a.out tmp
 endef
 
 # %(call build,ENVIRONMENT,COMPILE,FLAGS,OUTPUT,RUNNER)
@@ -14,7 +14,7 @@ define build
   $1 $4
 endef
 
-all: test test++ vc2017 linux mingw cli
+all: test test++ vc2017 linux mingw cli repl
 
 test:
 	$(call build,,$(CC),$(CFLAGS) -o ut,$(RUNNER) ./ut)
@@ -45,7 +45,7 @@ cli:
 	$(CC) ../elk.c ../examples/cmdline/main.c $(CFLAGS) -lm -o $@
 
 repl:
-	$(CC) ../elk.c ../examples/repl/main.c $(CFLAGS) -o $@
+	$(CC) ../elk.c ../examples/repl/main.c $(CFLAGS) -lm -o $@
 
 coverage: test
 	gcov -l -n *.gcno | sed '/^$$/d' | sed 'N;s/\n/ /'
