@@ -934,8 +934,8 @@ static jsval_t do_op(struct js *js, uint8_t op, jsval_t lhs, jsval_t rhs) {
   //printf("OP %d %d %d\n", op, vtype(lhs), vtype(r));
   if (is_assign(op) && vtype(lhs) != T_PROP) return js_err(js, "bad lhs");
   switch (op) {
-    case TOK_Q)       return do_q(js, l, rhs);
-    case TOK_COLON)   return do_colon(js, lhs, rhs);
+    case TOK_Q):      return do_q(js, l, rhs);
+    case TOK_COLON):  return do_colon(js, lhs, rhs);
     case TOK_LAND:    return mkval(T_BOOL, js_truthy(js, l) && js_truthy(js, r) ? 1 : 0);
     case TOK_LOR:     return do_logical_or(js, l, r);
     case TOK_TYPEOF:  return mkstr(js, typestr(vtype(r)), strlen(typestr(vtype(r))));
