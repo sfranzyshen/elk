@@ -916,12 +916,30 @@ static jsval_t do_logical_or(struct js *js, jsval_t l, jsval_t r) {
   return mkval(T_BOOL, js_truthy(js, r) ? 1 : 0);
 }
 
+#ifdef JS_EXTRA
+static jsval_t do_q(struct js *js, jsval_t l, jsval_t rhs) {
+  if (js->flags & F_NOEXEC) return rhs;
+  if (!js_truthy(js, l)) js->flags |= F_NOEXEC;
+  return rhs;
+}
+
+static jsval_t do_colon(struct js *js, jsval_t lhs, jsval_t rhs) {
+  bool f = js->flags & F_NOEXEC;
+  if (f) js->flags &= ~F_NOEXEC;
+  return f ? rhs : lhs;
+}
+#endif
+
 // clang-format off
 static jsval_t do_op(struct js *js, uint8_t op, jsval_t lhs, jsval_t rhs) {
   jsval_t l = resolveprop(js, lhs), r = resolveprop(js, rhs);
   //printf("OP %d %d %d\n", op, vtype(lhs), vtype(r));
   if (is_assign(op) && vtype(lhs) != T_PROP) return js_err(js, "bad lhs");
   switch (op) {
+#ifdef JS_EXTRA
+    case TOK_Q) return do_q(js, l, rhs);
+    case TOK_COLON) return do_colon(js, lhs, rhs);
+#endif	  
     case TOK_LAND:    return mkval(T_BOOL, js_truthy(js, l) && js_truthy(js, r) ? 1 : 0);
     case TOK_LOR:     return do_logical_or(js, l, r);
     case TOK_TYPEOF:  return mkstr(js, typestr(vtype(r)), strlen(typestr(vtype(r))));
