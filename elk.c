@@ -106,6 +106,32 @@ enum {
   T_ERR
 };
 
+// Error Messages 
+static const char *err_bad_arg 	= "bad arg";
+static const char *err_ukn_op 	= "unknown op";
+static const char *err_uex_tok 	= "unexpected token";
+static const char *err_ard_dec 	= "already declared";
+static const char *err_not_imp 	= "not implemented";
+static const char *err_not_fnd 	= "not found";
+static const char *err_div_zer 	= "div by zero";
+static const char *err_exp_dep 	= "expr too deep";
+static const char *err_idt_exp 	= "ident expected";
+static const char *err_lku_nob 	= "lookup in non-obj";
+static const char *err_bad_sop 	= "bad str op";
+static const char *err_num_arg 	= "num args";
+static const char *err_non_fun 	= "calling non-function";
+static const char *err_bad_cal 	= "bad call";
+static const char *err_bad_lhs 	= "bad lhs";
+static const char *err_bad_slt 	= "bad str literal";
+static const char *err_not_fun 	= "not in func";
+static const char *err_bad_sig 	= "bad sig";
+static const char *err_oom 		= "oom";
+static const char *err_typ_mm 	= "type mismatch";
+static const char *err_not_lop 	= "not in loop";
+static const char *err_ffi 		= "ffi";
+static const char *err_bad_exp 	= "bad expr";
+static const char *err_par_err 	= "parse error";
+
 static const char *typestr(uint8_t t) {
   const char *names[] = { "object", "prop", "string", "undefined", "null",
                           "number", "boolean", "function", "nan" };
@@ -288,7 +314,7 @@ static jsoff_t js_alloc(struct js *js, size_t size) {
 
 static jsval_t mkentity(struct js *js, jsoff_t b, const void *buf, size_t len) {
   jsoff_t ofs = js_alloc(js, len + sizeof(b));
-  if (ofs == (jsoff_t) ~0) return js_err(js, "oom");
+  if (ofs == (jsoff_t) ~0) return js_err(js, err_oom);
   memcpy(&js->mem[ofs], &b, sizeof(b));
   // Using memmove - in case we're stringifying data from the free JS mem
   if (buf != NULL) memmove(&js->mem[ofs + sizeof(b)], buf, len);
@@ -646,7 +672,7 @@ static jsval_t lookup(struct js *js, const char *buf, size_t len) {
     if (vdata(scope) == 0) break;
     scope = mkval(T_OBJ, loadoff(js, vdata(scope) + sizeof(jsoff_t)));
   }
-  return js_err(js, "'%.*s' not found", (int) len, buf);
+  return js_err(js, "'%.*s' %s", (int) len, buf, err_not_fnd);
 }
 
 static jsval_t do_string_op(struct js *js, uint8_t op, jsval_t l, jsval_t r) {
@@ -667,18 +693,18 @@ static jsval_t do_string_op(struct js *js, uint8_t op, jsval_t l, jsval_t r) {
     bool eq = n1 == n2 && memcmp(&js->mem[off1], &js->mem[off2], n1) == 0;
     return mkval(T_BOOL, eq ? 0 : 1);
   } else {
-    return js_err(js, "bad str op");
+    return js_err(js, err_bad_sop);
   }
 }
 
 static jsval_t do_dot_op(struct js *js, jsval_t l, jsval_t r) {
   const char *ptr = (char *) &js->code[coderefoff(r)];
-  if (vtype(r) != T_CODEREF) return js_err(js, "ident expected");
+  if (vtype(r) != T_CODEREF) return js_err(js, err_idt_exp);
   // Handle stringvalue.length
   if (vtype(l) == T_STR && streq(ptr, codereflen(r), "length", 6)) {
     return tov(offtolen(loadoff(js, vdata(l))));
   }
-  if (vtype(l) != T_OBJ) return js_err(js, "lookup in non-obj");
+  if (vtype(l) != T_OBJ) return js_err(js, err_lku_nob);
   jsoff_t off = lkp(js, l, ptr, codereflen(r));
   return off == 0 ? mkval(T_UNDEF, 0) : mkval(T_PROP, off);
 }
@@ -696,7 +722,7 @@ static jsval_t js_call_params(struct js *js) {
     if (vdata(res) == 0) js->tok = TOK_ERR;  // Expression had 0 tokens
   } while (js->tok == TOK_COMMA);
   js->flags = flags;
-  if (js->tok != TOK_RPAREN) return js_err(js, "parse error");
+  if (js->tok != TOK_RPAREN) return js_err(js, err_par_err);
   return mkcoderef(pos, js->pos - pos - js->tlen);
 }
 
@@ -777,7 +803,7 @@ static jsval_t call_c(struct js *js, const char *fn, int fnlen, jsoff_t fnoff) {
   int n = 0, i, type = fn[0] == 'd' ? 1 : 0;
   for (i = 1; i < fnlen && fn[i] != '@' && n < MAX_FFI_ARGS; i++) {
     js->pos = skiptonext(js->code, js->clen, js->pos);
-    if (js->pos >= js->clen) return js_err(js, "bad arg %d", n + 1);
+    if (js->pos >= js->clen) return js_err(js, "%s %d", err_bad_arg, n + 1);
     jsval_t v = resolveprop(js, js_expr(js, TOK_COMMA, TOK_RPAREN));
     // printf("  arg %d[%c] -> %s\n", n, fn[i], js_str(js, v));
     if (fn[i] == 'd' || (fn[i] == 'j' && sizeof(jsval_t) > sizeof(jw_t))) {
@@ -805,24 +831,24 @@ static jsval_t call_c(struct js *js, const char *fn, int fnlen, jsoff_t fnoff) {
         //printf("CB PARAM SET: js %p, param %p %u\n", js, &js->mem[cbp], cbp);
         break;
 #endif
-      case 'd': if (t != T_NUM) return js_err(js, "bad arg %d", n + 1); args[n++].d = tod(v); break;
-      case 'b': if (t != T_BOOL) return js_err(js, "bad arg %d", n + 1); args[n++].w = vdata(v); break;
-      case 'i': if (t != T_NUM && t != T_BOOL) return js_err(js, "bad arg %d", n + 1); args[n++].w = t == T_BOOL ? (long) vdata(v) : (long) tod(v); break;
-      case 's': if (t != T_STR) return js_err(js, "bad arg %d", n + 1); args[n++].p = js->mem + vstr(js, v, NULL); break;
-      case 'p': if (t != T_NUM) return js_err(js, "bad arg %d", n + 1); args[n++].w = (jw_t) tod(v); break;
+      case 'd': if (t != T_NUM) return js_err(js, "%s %d", err_bad_arg, n + 1); args[n++].d = tod(v); break;
+      case 'b': if (t != T_BOOL) return js_err(js, "%s %d", err_bad_arg, n + 1); args[n++].w = vdata(v); break;
+      case 'i': if (t != T_NUM && t != T_BOOL) return js_err(js, "%s %d", err_bad_arg, n + 1); args[n++].w = t == T_BOOL ? (long) vdata(v) : (long) tod(v); break;
+      case 's': if (t != T_STR) return js_err(js, "%s %d", err_bad_arg, n + 1); args[n++].p = js->mem + vstr(js, v, NULL); break;
+      case 'p': if (t != T_NUM) return js_err(js, "%s %d", err_bad_arg, n + 1); args[n++].w = (jw_t) tod(v); break;
 			case 'j': args[n++].u64 = v; break;
 			case 'm': args[n++].p = js; break;
 			case 'u': args[n++].p = &js->mem[cbp]; break;
-      default: return js_err(js, "bad sig");
+      default: return js_err(js, err_bad_sig);
     }
     js->pos = skiptonext(js->code, js->clen, js->pos);
     if (js->pos < js->clen && js->code[js->pos] == ',') js->pos++;
   }
   uintptr_t f = (uintptr_t) unhexn((uint8_t *) &fn[i + 1], fnlen - i - 1);
   //printf("  type %d nargs %d addr %" PRIxPTR "\n", type, n, f);
-  if (js->pos != js->clen) return js_err(js, "num args");
-  if (fn[i] != '@') return js_err(js, "ffi");
-  if (f == 0) return js_err(js, "ffi");
+  if (js->pos != js->clen) return js_err(js, err_num_arg);
+  if (fn[i] != '@') return js_err(js, err_ffi);
+  if (f == 0) return js_err(js, err_ffi);
 #ifndef WIN32
 #define __cdecl
 #endif
@@ -835,7 +861,7 @@ static jsval_t call_c(struct js *js, const char *fn, int fnlen, jsoff_t fnoff) {
     case 5: res.d = ((double(__cdecl*)(jw_t,double,jw_t,jw_t,jw_t,jw_t)) f)  (args[0].w, args[1].d, args[2].w, args[3].w, args[4].w, args[5].w); break;
     case 6: res.u64 = ((uint64_t(__cdecl*)(double,double,jw_t,jw_t,jw_t,jw_t)) f)  (args[0].d, args[1].d, args[2].w, args[3].w, args[4].w, args[5].w); break;
     case 7: res.d = ((double(__cdecl*)(double,double,jw_t,jw_t,jw_t,jw_t)) f)(args[0].d, args[1].d, args[2].w, args[3].w, args[4].w, args[5].w); break;
-    default: return js_err(js, "ffi");
+    default: return js_err(js, err_ffi);
   }
   //printf("  TYPE %d RES: %" PRIxPTR " %g %p\n", type, res.v, res.d, res.p);
   // Import return value into JS
@@ -849,7 +875,7 @@ static jsval_t call_c(struct js *js, const char *fn, int fnlen, jsoff_t fnoff) {
     case 'j': return (jsval_t) res.u64;
   }
   // clang-format on
-  return js_err(js, "bad sig");
+  return js_err(js, err_bad_sig);
 }
 ///////////////////////////////////////////////  C  FFI implementation end
 
@@ -892,8 +918,8 @@ static jsval_t call_js(struct js *js, const char *fn, int fnlen) {
 }
 
 static jsval_t do_call_op(struct js *js, jsval_t func, jsval_t args) {
-  if (vtype(func) != T_FUNC) return js_err(js, "calling non-function");
-  if (vtype(args) != T_CODEREF) return js_err(js, "bad call");
+  if (vtype(func) != T_FUNC) return js_err(js, err_non_fun);
+  if (vtype(args) != T_CODEREF) return js_err(js, err_bad_cal);
   jsoff_t fnlen, fnoff = vstr(js, func, &fnlen);
   const char *fn = (const char *) &js->mem[fnoff];
   const char *code = js->code;              // Save current parser state
@@ -916,12 +942,28 @@ static jsval_t do_logical_or(struct js *js, jsval_t l, jsval_t r) {
   return mkval(T_BOOL, js_truthy(js, r) ? 1 : 0);
 }
 
+/*
+static jsval_t do_q(struct js *js, jsval_t l, jsval_t rhs) {
+  if (js->flags & F_NOEXEC) return rhs;
+  if (!js_truthy(js, l)) js->flags |= F_NOEXEC;
+  return rhs;
+}
+
+static jsval_t do_colon(struct js *js, jsval_t lhs, jsval_t rhs) {
+  bool f = js->flags & F_NOEXEC;
+  if (f) js->flags &= ~F_NOEXEC;
+  return f ? rhs : lhs;
+}
+*/
+
 // clang-format off
 static jsval_t do_op(struct js *js, uint8_t op, jsval_t lhs, jsval_t rhs) {
   jsval_t l = resolveprop(js, lhs), r = resolveprop(js, rhs);
   //printf("OP %d %d %d\n", op, vtype(lhs), vtype(r));
-  if (is_assign(op) && vtype(lhs) != T_PROP) return js_err(js, "bad lhs");
+  if (is_assign(op) && vtype(lhs) != T_PROP) return js_err(js, err_bad_lhs);
   switch (op) {
+//    case TOK_Q:       return do_q(js, l, rhs);
+//    case TOK_COLON:   return do_colon(js, lhs, rhs);
     case TOK_LAND:    return mkval(T_BOOL, js_truthy(js, l) && js_truthy(js, r) ? 1 : 0);
     case TOK_LOR:     return do_logical_or(js, l, r);
     case TOK_TYPEOF:  return mkstr(js, typestr(vtype(r)), strlen(typestr(vtype(r))));
@@ -933,12 +975,12 @@ static jsval_t do_op(struct js *js, uint8_t op, jsval_t lhs, jsval_t rhs) {
   }
   if (is_assign(op))    return do_assign_op(js, op, lhs, r);
   if (vtype(l) == T_STR && vtype(r) == T_STR) return do_string_op(js, op, l, r);
-  if (is_unary(op) && vtype(r) != T_NUM) return js_err(js, "type mismatch");
-  if (!is_unary(op) && op != TOK_DOT && (vtype(l) != T_NUM || vtype(r) != T_NUM)) return js_err(js, "type mismatch");
+  if (is_unary(op) && vtype(r) != T_NUM) return js_err(js, err_typ_mm);
+  if (!is_unary(op) && op != TOK_DOT && (vtype(l) != T_NUM || vtype(r) != T_NUM)) return js_err(js, err_typ_mm);
   double a = tod(l), b = tod(r);
   switch (op) {
     case TOK_EXP:     return tov(pow(a, b));
-    case TOK_DIV:     return tod(r) == 0 ? js_err(js, "div by zero") : tov(a / b);
+    case TOK_DIV:     return tod(r) == 0 ? js_err(js, err_div_zer) : tov(a / b);
     case TOK_REM:     return tov(a - b * ((long) (a / b)));
     case TOK_MUL:     return tov(a * b);
     case TOK_PLUS:    return tov(a + b);
@@ -959,7 +1001,7 @@ static jsval_t do_op(struct js *js, uint8_t op, jsval_t lhs, jsval_t rhs) {
     case TOK_LE:      return mkval(T_BOOL, a <= b);
     case TOK_GT:      return mkval(T_BOOL, a > b);
     case TOK_GE:      return mkval(T_BOOL, a >= b);
-    default:          return js_err(js, "unknown op %d", (int) op);  // LCOV_EXCL_LINE
+    default:          return js_err(js, "%s %d", err_ukn_op, (int) op);  // LCOV_EXCL_LINE
   }
 }
 // clang-format on
@@ -975,7 +1017,7 @@ static jsval_t js_str_literal(struct js *js) {
   uint8_t *out = &js->mem[js->brk + sizeof(jsoff_t)];
   int n1 = 0, n2 = 0;
   // printf("STR %u %lu %lu\n", js->brk, js->tlen, js->clen);
-  if (js->brk + sizeof(jsoff_t) + js->tlen > js->size) return js_err(js, "oom");
+  if (js->brk + sizeof(jsoff_t) + js->tlen > js->size) return js_err(js, err_oom);
   while (n2++ + 2 < (int) js->tlen) {
     if (in[n2] == '\\') {
       if (in[n2 + 1] == in[0]) {
@@ -991,7 +1033,7 @@ static jsval_t js_str_literal(struct js *js) {
         out[n1++] = unhex(in[n2 + 2]) << 4 | unhex(in[n2 + 3]);
         n2 += 2;
       } else {
-        return js_err(js, "bad str literal");
+        return js_err(js, err_bad_slt);
       }
       n2++;
     } else {
@@ -1007,9 +1049,9 @@ static jsval_t js_obj_literal(struct js *js) {
   jsval_t obj = exe ? mkobj(js, 0) : mkval(T_UNDEF, 0);
   if (is_err(obj)) return obj;
   while (nexttok(js) != TOK_RBRACE) {
-    if (js->tok != TOK_IDENTIFIER) return js_err(js, "parse error");
+    if (js->tok != TOK_IDENTIFIER) return js_err(js, err_par_err);
     size_t koff = js->toff, klen = js->tlen;
-    if (nexttok(js) != TOK_COLON) return js_err(js, "parse error");
+    if (nexttok(js) != TOK_COLON) return js_err(js, err_par_err);
     jsval_t val = js_expr(js, TOK_RBRACE, TOK_COMMA);
     if (exe) {
       // printf("XXXX [%s] scope: %lu\n", js_str(js, val), vdata(js->scope));
@@ -1020,7 +1062,7 @@ static jsval_t js_obj_literal(struct js *js) {
       if (is_err(res)) return res;
     }
     if (js->tok == TOK_RBRACE) break;
-    if (js->tok != TOK_COMMA) return js_err(js, "parse error");
+    if (js->tok != TOK_COMMA) return js_err(js, err_par_err);
   }
   return obj;
 }
@@ -1028,17 +1070,17 @@ static jsval_t js_obj_literal(struct js *js) {
 static jsval_t js_func_literal(struct js *js) {
   jsoff_t pos = js->pos;
   uint8_t flags = js->flags;  // Save current flags
-  if (nexttok(js) != TOK_LPAREN) return js_err(js, "parse error");
+  if (nexttok(js) != TOK_LPAREN) return js_err(js, err_par_err);
   for (bool expect_ident = false; nexttok(js) != TOK_EOF; expect_ident = true) {
     if (expect_ident && js->tok != TOK_IDENTIFIER)
-      return js_err(js, "parse error");
+      return js_err(js, err_par_err);
     if (js->tok == TOK_RPAREN) break;
-    if (js->tok != TOK_IDENTIFIER) return js_err(js, "parse error");
+    if (js->tok != TOK_IDENTIFIER) return js_err(js, err_par_err);
     if (nexttok(js) == TOK_RPAREN) break;
-    if (js->tok != TOK_COMMA) return js_err(js, "parse error");
+    if (js->tok != TOK_COMMA) return js_err(js, err_par_err);
   }
-  if (js->tok != TOK_RPAREN) return js_err(js, "parse error");
-  if (nexttok(js) != TOK_LBRACE) return js_err(js, "parse error");
+  if (js->tok != TOK_RPAREN) return js_err(js, err_par_err);
+  if (nexttok(js) != TOK_LBRACE) return js_err(js, err_par_err);
   js->flags |= F_NOEXEC;              // Set no-execution flag to parse the
   jsval_t res = js_block(js, false);  // Skip function body - no exec
   if (is_err(res)) return res;        // But fail short on parse error
@@ -1055,8 +1097,8 @@ static jsval_t js_expr(struct js *js, uint8_t etok, uint8_t etok2) {
   // printf("E1 %d %d %d %u/%u\n", js->tok, etok, etok2, js->pos, js->clen);
   while ((tok = nexttok(js)) != etok && tok != etok2 && tok != TOK_EOF) {
     // printf("E2 %d %d %d %u/%u\n", js->tok, etok, etok2, js->pos, js->clen);
-    if (tok == TOK_ERR) return js_err(js, "parse error");
-    if (n >= JS_EXPR_MAX) return js_err(js, "expr too deep");
+    if (tok == TOK_ERR) return js_err(js, err_par_err);
+    if (n >= JS_EXPR_MAX) return js_err(js, err_exp_dep);
     // Convert TOK_LPAREN to a function call TOK_CALL if required
     if (tok == TOK_LPAREN && (n > 0 && !is_op(pt))) tok = TOK_CALL;
     if (is_op(tok)) {
@@ -1097,7 +1139,7 @@ static jsval_t js_expr(struct js *js, uint8_t etok, uint8_t etok2) {
         case TOK_TRUE:    stk[n++] = mkval(T_BOOL, 1); break;
         case TOK_FALSE:   stk[n++] = mkval(T_BOOL, 0); break;
         case TOK_LPAREN:  stk[n++] = js_expr(js, TOK_RPAREN, TOK_EOF); break;
-        default:          return js_err(js, "unexpected token '%.*s'", (int) js->tlen, js->code + js->toff);
+        default:          return js_err(js, "%s '%.*s'", err_uex_tok, (int) js->tlen, js->code + js->toff);
       }
       // clang-format on
     }
@@ -1107,7 +1149,7 @@ static jsval_t js_expr(struct js *js, uint8_t etok, uint8_t etok2) {
   // printf("EE toks=%d ops=%d binary=%d\n", n, nops, nuops);
   if (js->flags & F_NOEXEC) return mkval(T_UNDEF, n);  // pass n to the caller
   if (n == 0) return mkval(T_UNDEF, 0);
-  if (n != nops + nuops + 1) return js_err(js, "bad expr");
+  if (n != nops + nuops + 1) return js_err(js, err_bad_exp);
   sortops(ops, nops, stk);  // Sort operations by priority
   uint32_t mask = 0;
   // uint8_t nq = 0;  // Number of `?` ternary operations
@@ -1120,17 +1162,17 @@ static jsval_t js_expr(struct js *js, uint8_t etok, uint8_t etok2) {
     mask |= 1 << idx;
     // printf("  OP: %d idx %d %d%d\n", op, idx, needleft, needright);
     if (needleft) {
-      if (idx < 1) return js_err(js, "bad expr");
+      if (idx < 1) return js_err(js, err_bad_exp);
       mask |= 1 << (idx - 1);
       ri = getri(mask, idx);
       left = stk[ri];
-      if (is_err(left)) return js_err(js, "bad expr");
+      if (is_err(left)) return js_err(js, err_bad_exp);
     }
     if (needright) {
       mask |= 1 << (idx + 1);
-      if (idx + 1 >= n) return js_err(js, "bad expr");
+      if (idx + 1 >= n) return js_err(js, err_bad_exp);
       right = stk[idx + 1];
-      if (is_err(right)) return js_err(js, "bad expr");
+      if (is_err(right)) return js_err(js, err_bad_exp);
     }
     stk[ri] = do_op(js, op, left, right);       // Perform operation
     if (is_err(stk[ri])) return stk[ri];        // Propagate error
@@ -1142,7 +1184,7 @@ static jsval_t js_let(struct js *js) {
   uint8_t exe = !(js->flags & F_NOEXEC);
   for (;;) {
     uint8_t tok = nexttok(js);
-    if (tok != TOK_IDENTIFIER) return js_err(js, "parse error");
+    if (tok != TOK_IDENTIFIER) return js_err(js, err_par_err);
     jsoff_t noff = js->toff, nlen = js->tlen;
     char *name = (char *) &js->code[noff];
     jsval_t v = mkval(T_UNDEF, 0);
@@ -1153,13 +1195,13 @@ static jsval_t js_let(struct js *js) {
     }
     if (exe) {
       if (lkp(js, js->scope, name, nlen) > 0)
-        return js_err(js, "'%.*s' already declared", (int) nlen, name);
+        return js_err(js, "'%.*s' %s", (int) nlen, name, err_ard_dec);
       jsval_t x =
           setprop(js, js->scope, mkstr(js, name, nlen), resolveprop(js, v));
       if (is_err(x)) return x;
     }
     if (js->tok == TOK_SEMICOLON || js->tok == TOK_EOF) break;  // Stop
-    if (js->tok != TOK_COMMA) return js_err(js, "parse error");
+    if (js->tok != TOK_COMMA) return js_err(js, err_par_err);
   }
   return mkval(T_UNDEF, 0);
 }
@@ -1175,9 +1217,9 @@ static jsval_t js_block_or_stmt(struct js *js) {
 }
 
 static jsval_t js_if(struct js *js) {
-  if (nexttok(js) != TOK_LPAREN) return js_err(js, "parse error");
+  if (nexttok(js) != TOK_LPAREN) return js_err(js, err_par_err);
   jsval_t cond = js_expr(js, TOK_RPAREN, TOK_EOF);
-  if (js->tok != TOK_RPAREN) return js_err(js, "parse error");
+  if (js->tok != TOK_RPAREN) return js_err(js, err_par_err);
   bool noexec = js->flags & F_NOEXEC;
   bool cond_true = js_truthy(js, cond);
   if (!cond_true) js->flags |= F_NOEXEC;
@@ -1195,9 +1237,9 @@ static jsval_t js_if(struct js *js) {
 
 static jsval_t js_while(struct js *js) {
   jsoff_t pos = js->pos - js->tlen;  // The beginning of `while` stmt
-  if (nexttok(js) != TOK_LPAREN) return js_err(js, "parse error");
+  if (nexttok(js) != TOK_LPAREN) return js_err(js, err_par_err);
   jsval_t cond = js_expr(js, TOK_RPAREN, TOK_EOF);
-  if (js->tok != TOK_RPAREN) return js_err(js, "parse error");
+  if (js->tok != TOK_RPAREN) return js_err(js, err_par_err);
   uint8_t flags = js->flags, exe = !(js->flags & F_NOEXEC);
   bool cond_true = js_truthy(js, cond);
   if (exe) js->flags |= F_LOOP | (cond_true ? 0 : F_NOEXEC);
@@ -1211,13 +1253,13 @@ static jsval_t js_while(struct js *js) {
 }
 
 static jsval_t js_break(struct js *js) {
-  if (!(js->flags & F_LOOP)) return js_err(js, "not in loop");
+  if (!(js->flags & F_LOOP)) return js_err(js, err_not_lop);
   if (!(js->flags & F_NOEXEC)) js->flags |= F_BREAK | F_NOEXEC;
   return mkval(T_UNDEF, 0);
 }
 
 static jsval_t js_continue(struct js *js) {
-  if (!(js->flags & F_LOOP)) return js_err(js, "not in loop");
+  if (!(js->flags & F_LOOP)) return js_err(js, err_not_lop);
   js->flags |= F_NOEXEC;
   return mkval(T_UNDEF, 0);
 }
@@ -1226,7 +1268,7 @@ static jsval_t js_return(struct js *js) {
   uint8_t exe = !(js->flags & F_NOEXEC);
   // jsoff_t pos = js->pos;
   // printf("RET..\n");
-  if (exe && !(js->flags & F_CALL)) return js_err(js, "not in func");
+  if (exe && !(js->flags & F_CALL)) return js_err(js, err_not_fun);
   if (nexttok(js) == TOK_SEMICOLON) return mkval(T_UNDEF, 0);
   js->pos -= js->tlen;  // Go back
   jsval_t result = js_expr(js, TOK_SEMICOLON, TOK_SEMICOLON);
@@ -1249,7 +1291,7 @@ static jsval_t js_stmt(struct js *js, uint8_t etok) {
     case TOK_FOR: case TOK_IN: case TOK_INSTANCEOF: case TOK_NEW:
     case TOK_SWITCH: case  TOK_THIS: case TOK_THROW: case TOK_TRY:
     case TOK_VAR: case TOK_VOID: case TOK_WITH: case TOK_YIELD:
-      res = js_err(js, "'%.*s' not implemented", (int) js->tlen, js->code + js->toff);
+      res = js_err(js, "'%.*s' %s", (int) js->tlen, js->code + js->toff, err_not_imp);
       break;
     case TOK_CONTINUE:  res = js_continue(js); break;
     case TOK_BREAK:     res = js_break(js); break;
