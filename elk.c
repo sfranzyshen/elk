@@ -1299,7 +1299,7 @@ int js_usage(struct js *js) {
 
 jsval_t js_import(struct js *js, uintptr_t fn, const char *signature) {
   char buf[64];
-  size_t n = snprintf(buf, sizeof(buf), "%s@%" PRIxPTR, signature, fn);
+  size_t n = snprintf(buf, sizeof(buf), "%s@%lu" PRIxPTR, signature, fn);
   jsval_t str = mkstr(js, buf, n);
   return mkval(T_FUNC, vdata(str));
 }
